@@ -23,41 +23,32 @@ import (
 
 	"golang.org/x/crypto/pkcs12"
 
-	kingpin "gopkg.in/alecthomas/kingpin.v2"
+	kingpin "github.com/alecthomas/kingpin/v2"
 )
 
 var (
-	version   = "OpenRDAP v0.0.1"
+	version   = "OpenRDAP v0.9.1"
 	usageText = version + `
 (www.openrdap.org)
 
 Usage: rdap [OPTIONS] DOMAIN|IP|ASN|ENTITY|NAMESERVER|RDAP-URL
-  e.g. rdap example.cz
+  e.g. rdap example.com
        rdap 192.0.2.0
        rdap 2001:db8::
        rdap AS2856
+	   rdap OPS4-RIPE
        rdap https://rdap.nic.cz/domain/example.cz
 
-       rdap -f registrant -f administrative -f billing amazon.com.br
        rdap --json https://rdap.nic.cz/domain/example.cz
        rdap -s https://rdap.nic.cz -t help
 
 Options:
   -h, --help          Show help message.
+  -V, --version       Print version and quit.
   -v, --verbose       Print verbose messages on STDERR.
 
   -T, --timeout=SECS  Timeout after SECS seconds (default: 30).
   -k, --insecure      Disable SSL certificate verification.
-
-  -e, --experimental  Enable some experimental options:
-                      - Use the bootstrap service https://test.rdap.net/rdap
-                      - Enable object tag support
-
-Authentication options:
-  -P, --p12=cert.p12[:password] Use client certificate & private key (PKCS#12 format)
-or:
-  -C, --cert=cert.pem           Use client certificate (PEM format)
-  -K, --key=cert.key            Use client private key (PEM format)
 
 Output Options:
       --text          Output RDAP, plain text "tree" format (default).
@@ -93,10 +84,12 @@ Advanced options (bootstrapping):
       --bs-url=URL    Bootstrap service URL (default: https://data.iana.org/rdap)
       --bs-ttl=SECS   Bootstrap cache time in seconds (default: 3600)
 
-Advanced options (experiments):
-      --exp=test_rdap_net  Use the bootstrap service https://test.rdap.net/rdap
-      --exp=object_tag     Enable object tag support
-                           (draft-hollenbeck-regext-rdap-object-tag)
+Advanced options (authentication):
+  -P, --p12=cert.p12[:password] Use client certificate & private key (PKCS#12 format)
+or:
+  -C, --cert=cert.pem           Use client certificate (PEM format)
+  -K, --key=cert.key            Use client private key (PEM format)
+
 `
 )
 
@@ -142,6 +135,7 @@ func RunCLI(args []string, stdout io.Writer, stderr io.Writer, options CLIOption
 
 	// Command line options.
 	verboseFlag := app.Flag("verbose", "").Short('v').Bool()
+	versionFlag := app.Flag("version", "").Short('V').Bool()
 	timeoutFlag := app.Flag("timeout", "").Short('T').Default("30").Uint16()
 	insecureFlag := app.Flag("insecure", "").Short('k').Bool()
 
@@ -179,6 +173,12 @@ func RunCLI(args []string, stdout io.Writer, stderr io.Writer, options CLIOption
 		return 1
 	}
 
+	// Print version string?
+	if *versionFlag {
+		fmt.Fprintln(stdout, version)
+		return 0
+	}
+
 	var verbose func(text string)
 	if *verboseFlag {
 		verbose = func(text string) {
@@ -214,9 +214,8 @@ func RunCLI(args []string, stdout io.Writer, stderr io.Writer, options CLIOption
 
 	// Enable the -e selection of experiments?
 	if *experimentalFlag {
-		verbose("rdap: Enabled -e/--experiments: test_rdap_net, object_tag")
+		verbose("rdap: Enabled -e/--experiments: test_rdap_net")
 		experiments["test_rdap_net"] = true
-		experiments["object_tag"] = true
 	}
 
 	// Forced sandbox mode?
@@ -461,6 +460,7 @@ func RunCLI(args []string, stdout io.Writer, stderr io.Writer, options CLIOption
 
 	// Custom HTTP client. Used to disable TLS certificate verification.
 	transport := &http.Transport{
+		Proxy:           http.ProxyFromEnvironment,
 		TLSClientConfig: tlsConfig,
 	}
 
@@ -476,9 +476,8 @@ func RunCLI(args []string, stdout io.Writer, stderr io.Writer, options CLIOption
 		HTTP:      httpClient,
 		Bootstrap: bs,
 
-		Verbose:                   verbose,
-		UserAgent:                 version,
-		ServiceProviderExperiment: experiments["object_tag"],
+		Verbose:   verbose,
+		UserAgent: version,
 	}
 
 	if *insecureFlag {
